@@ -1,0 +1,13 @@
+[package]
+name = "rusty_crawler"
+path = "src/lib.rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.38", features = ["full"] }
+clap = { version = "4.5", features = ["derive"] }
+reqwest = { version = "0.12", features = ["json", "cookies", "gzip", "brotli", "deflate", "stream"] }
+scraper = "0.18"
+thiserror = "1.0"
+url = "2.5"
