@@ -1,61 +1,69 @@
-use scraper::{Html, Selector};
+use tokio::{sync::Semaphore, time::{timeout, Duration}};
+use futures::stream::{FuturesUnordered, StreamExt};
+use std::{collections::HashSet, sync::{Arc, Mutex}};
 use reqwest::Client;
-use std::{
-    collections::HashSet,
-    future::Future,
-    pin::Pin,
-};
+use scraper::{Html, Selector};
 use url::Url;
 
-/// Recursively crawls pages up to `max_depth`.
-/// Keeps a mutable `visited` set to avoid duplicates.
-
-pub fn crawl<'a>(
-    client: &'a Client,
-    url: Url,
-    depth: usize,
+pub async fn crawl(
+    client:   Arc<Client>,
+    url:      Url,
+    depth:    usize,
     max_depth: usize,
-    visited: &'a mut HashSet<String>,
-) -> Pin<Box<dyn Future<Output = ()> + 'a>> {
-    Box::pin(async move {
-        // 1️⃣ depth / duplicate guards
-        if depth > max_depth {
-            return;
-        }
-        let url_str = url.as_str().to_string();
-        if !visited.insert(url_str.clone()) {
-            return;                 // already visited
-        }
-        println!("{url_str}  [depth={depth}]");
+    visited:  Arc<Mutex<HashSet<String>>>,
+    limiter:  Arc<Semaphore>,
+    timeout_s: u64,
+    same_domain: bool,
+    root:     Url,               // root to compare hosts
+) {
+    if depth > max_depth { return; }
 
-        // 2️⃣ fetch the page (await point #1)
-        let Ok(resp) = client.get(url.clone()).send().await else {
-            eprintln!("Failed to fetch: {url_str}");
-            return;
-        };
-        let Ok(body) = resp.text().await else {
-            eprintln!("Failed to read body: {url_str}");
-            return;
-        };
+    // dedup
+    {
+        let mut v = visited.lock().unwrap();
+        if !v.insert(url.as_str().to_owned()) { return; }
+    }
 
-        // 3️⃣ ---------- NO await below here ----------
-        // Parse HTML and collect all next URLs *before* we await again
-        let document  = Html::parse_document(&body);
-        let selector  = Selector::parse("a[href]").unwrap();
-        let mut next_urls = Vec::new();
+    // optional domain filter
+    if same_domain && url.host_str() != root.host_str() {
+        return;
+    }
 
-        for elem in document.select(&selector) {
-            if let Some(link) = elem.value().attr("href") {
-                if let Ok(abs) = url.join(link) {
-                    next_urls.push(abs);
-                }
+    let _permit = limiter.acquire().await.unwrap();
+
+    let body = match timeout(
+        Duration::from_secs(timeout_s),
+        client.get(url.clone()).send()
+    ).await {
+        Ok(Ok(resp)) => match resp.text().await {
+            Ok(b) => b,
+            Err(_) => return,
+        },
+        _ => return, // timeout or network error
+    };
+
+    // parse links
+    let doc = Html::parse_document(&body);
+    let sel = Selector::parse("a[href]").unwrap();
+    let mut tasks = FuturesUnordered::new();
+
+    for el in doc.select(&sel) {
+        if let Some(href) = el.value().attr("href") {
+            if let Ok(next) = url.join(href) {
+                let task = crawl(
+                    client.clone(),
+                    next,
+                    depth + 1,
+                    max_depth,
+                    visited.clone(),
+                    limiter.clone(),
+                    timeout_s,
+                    same_domain,
+                    root.clone(),
+                );
+                tasks.push(task);
             }
         }
-        drop(document);   // explicit ‑ makes it obvious HTML tree is gone
-
-        // 4️⃣ recurse – each call is awaited, but the future is now Send‑safe
-        for next in next_urls {
-            crawl(client, next, depth + 1, max_depth, visited).await;
-        }
-    })
+    }
+    while tasks.next().await.is_some() {}
 }
