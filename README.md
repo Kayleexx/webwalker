@@ -67,5 +67,6 @@ cargo test    # run tests
 
 https://github.com/user-attachments/assets/d52b6f7f-6d92-4af2-a162-92512d5902d3
 
+<img width="1327" height="956" alt="image" src="https://github.com/user-attachments/assets/776ea951-c1fc-4c7e-bf9a-fa8243bf6cd4" />
 
 
