@@ -63,3 +63,9 @@ cargo clippy  # lint code
 cargo test    # run tests
 ```
 
+## working output
+
+https://github.com/user-attachments/assets/d52b6f7f-6d92-4af2-a162-92512d5902d3
+
+
+
