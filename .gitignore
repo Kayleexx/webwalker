@@ -1,1 +1,12 @@
 /target
+**/*.rs.bk
+**/*.swp
+Cargo.lock
+.DS_Store
+*.log
+*.json
+.idea/
+.vscode/
+node_modules/
+*.tmp
+*.cache
